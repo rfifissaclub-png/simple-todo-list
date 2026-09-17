@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo List 3D Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            min-height: 100%;
+        }
+
+        body {
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        #three-bg {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .app-shell {
+            position: relative;
+            z-index: 1;
+        }
+
+        .dragging {
+            opacity: 0.4;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-sky-100 via-slate-50 to-indigo-100 min-h-screen flex items-center justify-center p-4">
+    <div id="three-bg"></div>
+    
+    <div class="app-shell w-full max-w-2xl bg-white/85 backdrop-blur-md shadow-2xl rounded-3xl p-6 border border-white/60">
+        <!-- Header Section -->
+        <div class="flex items-center justify-between mb-6 gap-4">
+            <div>
+                <p class="text-xs uppercase tracking-[0.25em] text-blue-600 font-bold">Espace de Travail</p>
+                <h1 class="text-3xl font-extrabold text-slate-800 tracking-tight">Ma Todo List</h1>
+            </div>
+            <div class="bg-blue-500/10 text-blue-700 px-4 py-2 rounded-2xl text-sm font-bold border border-blue-200/50 shadow-sm">
+                <span id="compteur">0</span>/ <span id="totalBadge">0</span> faites
+            </div>
+        </div>
+
+        <!-- Metrics Dashboard -->
+        <div class="grid grid-cols-3 gap-3 mb-6">
+            <div class="bg-slate-50/80 rounded-2xl p-3 border border-slate-200/70 shadow-sm">
+                <p class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Total</p>
+                <p id="totalCount" class="mt-1 text-2xl font-black text-slate-800">0</p>
+            </div>
+            <div class="bg-emerald-50/80 rounded-2xl p-3 border border-emerald-200/70 shadow-sm">
+                <p class="text-[10px] uppercase tracking-wider text-emerald-600 font-bold">Terminées</p>
+                <p id="completedCount" class="mt-1 text-2xl font-black text-emerald-700">0</p>
+            </div>
+            <div class="bg-amber-50/80 rounded-2xl p-3 border border-amber-200/70 shadow-sm">
+                <p class="text-[10px] uppercase tracking-wider text-amber-600 font-bold">En cours</p>
+                <p id="remainingCount" class="mt-1 text-2xl font-black text-amber-700">0</p>
+            </div>
+        </div>
+
+        <!-- Filter Controls -->
+        <div class="flex items-center justify-between mb-4">
+            <div class="text-slate-500 text-xs font-semibold tracking-wider uppercase">Tâches</div>
+            <div class="flex gap-1.5 bg-slate-100 p-1 rounded-xl">
+                <button id="filterAll" class="text-xs px-3 py-1.5 rounded-lg font-medium transition" onclick="setFilter('all')">Tous</button>
+                <button id="filterPending" class="text-xs px-3 py-1.5 rounded-lg font-medium transition" onclick="setFilter('pending')">En cours</button>
+                <button id="filterCompleted" class="text-xs px-3 py-1.5 rounded-lg font-medium transition" onclick="setFilter('completed')">Terminées</button>
+            </div>
+        </div>
+
+        <!-- Task List Container -->
+        <div id="liste" class="space-y-2.5 mb-5 min-h-[100px]"></div>
+
+        <!-- Input Section -->
+        <div class="space-y-3">
+            <div class="flex gap-2">
+                <input
+                    class="flex-1 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition shadow-sm bg-white"
+                    type="text"
+                    id="nouvelleTache"
+                    placeholder="Qu'avez-vous à faire ?"
+                    aria-label="Nouvelle tâche"
+                >
+                <input
+                    class="w-44 border border-slate-200 rounded-xl px-3 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition shadow-sm bg-white text-slate-600 font-medium"
+                    type="datetime-local"
+                    id="nouvelleHeure"
+                    aria-label="Échéance"
+                >
+                <button
+                    class="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md shadow-blue-500/20 transition transform active:scale-95"
+                    onclick="ajouter()"
+                >
+                    Ajouter
+                </button>
+            </div>
+
+            <!-- Quick Suggestions -->
+            <div>
+                <p class="text-[11px] font-semibold uppercase text-slate-400 mb-1.5 tracking-wider">Suggestions rapides</p>
+                <div id="recommandations" class="flex flex-wrap gap-1.5"></div>
+            </div>
+        </div>
+
+        <!-- Clear Actions -->
+        <div class="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
+            <button
+                class="text-xs text-slate-400 hover:text-red-500 font-medium transition"
+                onclick="effacerTout()"
+            >
+                Tout effacer
+            </button>
+            <button
+                class="text-xs text-red-500 hover:text-red-600 hover:bg-red-50 font-medium transition rounded-xl px-3 py-1.5 border border-red-200 bg-red-50/50"
+                onclick="supprimerTerminees()"
+            >
+                Effacer les terminées
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- THREE.JS BACKGROUND & PARTICLE SYSTEM ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0f9ff);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.getElementById('three-bg').appendChild(renderer.domElement);
+
+        camera.position.z = 5;
+
+        const cubes = [];
+        const colors = [0x3b82f6, 0x10b981, 0xf59e0b, 0x8b5cf6, 0xec4899];
+        const count = 14;
+
+        for (let i = 0; i < count; i++) {
+            let geometry;
+            const type = Math.floor(Math.random() * 4);
+            const size = 0.3 + Math.random() * 0.8;
+            if (type === 0) geometry = new THREE.IcosahedronGeometry(size, 2);
+            else if (type === 1) geometry = new THREE.BoxGeometry(size, size, size);
+            else if (type === 2) geometry = new THREE.SphereGeometry(size * 0.8, 24, 20);
+            else geometry = new THREE.TorusKnotGeometry(size * 0.5, size * 0.15, 80, 12);
+
+            const col = colors[i % colors.length];
+            const material = new THREE.MeshStandardMaterial({
+                color: col,
+                roughness: 0.3,
+                metalness: 0.2,
+                emissive: col,
+                emissiveIntensity: 0.05
+            });
+
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
+            mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+            scene.add(mesh);
+            cubes.push({
+                mesh: mesh,
+                baseY: mesh.position.y,
+                speed: 0.2 + Math.random() * 0.6,
+                amp: 0.2 + Math.random() * 0.5,
+                rx: (Math.random() - 0.5) * 0.008,
+                ry: (Math.random() - 0.5) * 0.008
+            });
+        }
+
+        // Lighting
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
+        keyLight.position.set(5, 8, 2);
+        scene.add(keyLight);
+
+        // Particle Burst Effect on Task Completion
+        const particles = [];
+        function createCelebration() {
+            const pCount = 30;
+            const geom = new THREE.SphereGeometry(0.06, 8, 8);
+            for (let i = 0; i < pCount; i++) {
+                const mat = new THREE.MeshBasicMaterial({
+                    color: colors[Math.floor(Math.random() * colors.length)]
+                });
+                const p = new THREE.Mesh(geom, mat);
+                p.position.set((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, 2);
+                const vel = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.15,
+                    (Math.random() - 0.5) * 0.15 + 0.05,
+                    (Math.random() - 0.5) * 0.15
+                );
+                scene.add(p);
+                particles.push({ mesh: p, vel: vel, life: 1.0 });
+            }
+        }
+
+        // Mouse Parallax
+        const mouse = { x: 0, y: 0 };
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        let start = Date.now();
+        function animate() {
+            requestAnimationFrame(animate);
+            const t = (Date.now() - start) * 0.001;
+
+            camera.position.x += (mouse.x * 0.5 - camera.position.x) * 0.05;
+            camera.position.y += (mouse.y * 0.3 - camera.position.y) * 0.05;
+
+            cubes.forEach((item, idx) => {
+                item.mesh.position.y = item.baseY + Math.sin(t * item.speed + idx) * item.amp;
+                item.mesh.rotation.x += item.rx;
+                item.mesh.rotation.y += item.ry;
+            });
+
+            // Update explosion particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.mesh.position.add(p.vel);
+                p.life -= 0.02;
+                p.mesh.scale.setScalar(p.life);
+                if (p.life <= 0) {
+                    scene.remove(p.mesh);
+                    particles.splice(i, 1);
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- TODO APP LOGIC ---
+        const STORAGE_KEY = 'taches-todo-list-v2';
+        let taches = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        let currentFilter = 'all';
+
+        function sauvegarder() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(taches));
+        }
+
+        function setFilter(type) {
+            currentFilter = type;
+            afficher();
+        }
+
+        function ajouter() {
+            const input = document.getElementById('nouvelleTache');
+            const timeInput = document.getElementById('nouvelleHeure');
+            const texte = input.value.trim();
+            const temps = timeInput.value || '';
+
+            if (!texte) {
+                input.focus();
+                return;
+            }
+
+            taches.push({
+                id: Date.now(),
+                texte: texte,
+                faite: false,
+                temps: temps
+            });
+
+            input.value = '';
+            timeInput.value = '';
+            sauvegarder();
+            afficher();
+        }
+
+        function supprimer(id) {
+            taches = taches.filter(t => t.id !== id);
+            sauvegarder();
+            afficher();
+        }
+
+        function supprimerTerminees() {
+            taches = taches.filter(t => !t.faite);
+            sauvegarder();
+            afficher();
+        }
+
+        function effacerTout() {
+            if (confirm("Voulez-vous vraiment tout supprimer ?")) {
+                taches = [];
+                sauvegarder();
+                afficher();
+            }
+        }
+
+        function basculerFaite(id) {
+            const task = taches.find(t => t.id === id);
+            if (task) {
+                task.faite = !task.faite;
+                if (task.faite) createCelebration();
+                sauvegarder();
+                afficher();
+            }
+        }
+
+        function modifierTache(id, nouveauTexte) {
+            const task = taches.find(t => t.id === id);
+            if (task && nouveauTexte.trim()) {
+                task.texte = nouveauTexte.trim();
+                sauvegarder();
+            }
+            afficher();
+        }
+
+        function formatTimeBadge(timeStr) {
+            if (!timeStr) return '';
+            const due = new Date(timeStr);
+            const now = new Date();
+            const diffMin = Math.round((due - now) / 60000);
+
+            if (diffMin < 0) {
+                return `<span class="bg-red-100 text-red-600 text-[10px] font-semibold px-2 py-0.5 rounded-full">En retard</span>`;
+            } else if (diffMin < 60) {
+                return `<span class="bg-amber-100 text-amber-700 text-[10px] font-semibold px-2 py-0.5 rounded-full">Dans ${diffMin} min</span>`;
+            } else {
+                const formatted = due.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                return `<span class="bg-slate-100 text-slate-500 text-[10px] font-medium px-2 py-0.5 rounded-full">${formatted}</span>`;
+            }
+        }
+
+        function updateFilterButtons() {
+            const buttons = {
+                all: document.getElementById('filterAll'),
+                pending: document.getElementById('filterPending'),
+                completed: document.getElementById('filterCompleted')
+            };
+
+            Object.keys(buttons).forEach(key => {
+                if (key === currentFilter) {
+                    buttons[key].className = 'text-xs px-3 py-1.5 rounded-lg font-bold bg-white text-blue-600 shadow-sm';
+                } else {
+                    buttons[key].className = 'text-xs px-3 py-1.5 rounded-lg font-medium text-slate-500 hover:text-slate-800 transition';
+                }
+            });
+        }
+
+        function afficher() {
+            const liste = document.getElementById('liste');
+            const compteur = document.getElementById('compteur');
+            const totalBadge = document.getElementById('totalBadge');
+            const totalCount = document.getElementById('totalCount');
+            const completedCount = document.getElementById('completedCount');
+            const remainingCount = document.getElementById('remainingCount');
+            
+            liste.innerHTML = '';
+            updateFilterButtons();
+
+            const completed = taches.filter(t => t.faite).length;
+            const remaining = taches.length - completed;
+
+            totalCount.textContent = taches.length;
+            completedCount.textContent = completed;
+            remainingCount.textContent = remaining;
+            compteur.textContent = completed;
+            totalBadge.textContent = taches.length;
+
+            const filteredTaches = taches.filter(t => {
+                if (currentFilter === 'pending') return !t.faite;
+                if (currentFilter === 'completed') return t.faite;
+                return true;
+            });
+
+            if (filteredTaches.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'text-center text-slate-400 py-8 border border-dashed border-slate-200 rounded-2xl text-xs font-medium';
+                empty.textContent = currentFilter === 'all' 
+                    ? 'Aucune tâche pour le moment. Ajoutez-en une ci-dessous !' 
+                    : 'Aucune tâche dans cette catégorie.';
+                liste.appendChild(empty);
+                return;
+            }
+
+            filteredTaches.forEach((tache) => {
+                const div = document.createElement('div');
+                const bgColor = tache.faite ? 'bg-emerald-50/50 border-emerald-200/60' : 'bg-white border-slate-200/80';
+                div.className = `tache flex items-center justify-between gap-3 p-3.5 rounded-2xl border ${bgColor} shadow-sm hover:shadow transition transform cursor-grab active:cursor-grabbing`;
+                div.draggable = true;
+
+                // Drag and Drop Events
+                div.addEventListener('dragstart', (e) => {
+                    div.classList.add('dragging');
+                    e.dataTransfer.setData('text/plain', tache.id);
+                });
+                div.addEventListener('dragend', () => div.classList.remove('dragging'));
+
+                const groupe = document.createElement('div');
+                groupe.className = 'flex items-center gap-3 flex-1 min-w-0';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = !!tache.faite;
+                checkbox.className = 'h-4 w-4 accent-blue-600 rounded cursor-pointer transition';
+                checkbox.onchange = () => basculerFaite(tache.id);
+
+                const span = document.createElement('span');
+                span.textContent = tache.texte;
+                span.className = `truncate text-sm font-medium ${tache.faite ? 'text-emerald-800 line-through opacity-60' : 'text-slate-700'}`;
+                span.title = "Double-cliquez pour modifier";
+
+                // Double Click to Edit
+                span.ondblclick = () => {
+                    const inputEdit = document.createElement('input');
+                    inputEdit.type = 'text';
+                    inputEdit.value = tache.texte;
+                    inputEdit.className = 'text-sm font-medium border border-blue-400 rounded px-2 py-0.5 w-full focus:outline-none';
+                    groupe.replaceChild(inputEdit, span);
+                    inputEdit.focus();
+
+                    const finishEdit = () => modifierTache(tache.id, inputEdit.value);
+                    inputEdit.onblur = finishEdit;
+                    inputEdit.onkeydown = (e) => { if (e.key === 'Enter') finishEdit(); };
+                };
+
+                groupe.appendChild(checkbox);
+                groupe.appendChild(span);
+
+                if (tache.temps && !tache.faite) {
+                    const timeBadge = document.createElement('div');
+                    timeBadge.innerHTML = formatTimeBadge(tache.temps);
+                    groupe.appendChild(timeBadge);
+                }
+
+                const bouton = document.createElement('button');
+                bouton.textContent = '✕';
+                bouton.className = 'text-slate-300 hover:text-red-500 hover:bg-red-50 font-bold rounded-lg w-7 h-7 flex items-center justify-center transition text-xs';
+                bouton.onclick = () => supprimer(tache.id);
+
+                div.appendChild(groupe);
+                div.appendChild(bouton);
+                liste.appendChild(div);
+            });
+        }
+
+        // Reordering logic via dragover
+        document.getElementById('liste').addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const draggingItem = document.querySelector('.dragging');
+            if (!draggingItem) return;
+
+            const siblings = [...document.getElementById('liste').querySelectorAll('.tache:not(.dragging)')];
+            const nextSibling = siblings.find(sibling => {
+                return e.clientY <= sibling.getBoundingClientRect().top + sibling.offsetHeight / 2;
+            });
+
+            document.getElementById('liste').insertBefore(draggingItem, nextSibling);
+        });
+
+        // Quick Suggestions List
+        const recommandationsInit = [
+            '🛒 Faire les courses',
+            '📞 Appeler le médecin',
+            '💼 Préparer la réunion',
+            '📧 Envoyer le rapport'
+        ];
+
+        function afficherRecommandations() {
+            const container = document.getElementById('recommandations');
+            container.innerHTML = '';
+            recommandationsInit.forEach((texte) => {
+                const btn = document.createElement('button');
+                btn.className = 'text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2.5 py-1 rounded-lg transition font-medium';
+                btn.textContent = texte;
+                btn.onclick = function() {
+                    const input = document.getElementById('nouvelleTache');
+                    input.value = texte.replace(/^[^\s]+\s/, ''); // strip emoji
+                    input.focus();
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        // Keyboard Event Listeners
+        document.getElementById('nouvelleTache').addEventListener('keydown', (e) => { if (e.key === 'Enter') ajouter(); });
+        document.getElementById('nouvelleHeure').addEventListener('keydown', (e) => { if (e.key === 'Enter') ajouter(); });
+
+        afficherRecommandations();
+        afficher();
+    </script>
+</body>
+</html>
